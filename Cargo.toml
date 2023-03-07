@@ -1,11 +1,10 @@
 [package]
 name = "api-client"
 version = "0.1.7"
-authors = ["John Peel <john@dgby.org>"]
+authors = ["John Peel <john@dgby.org>", "Peanutbother <peanutbother@proton.me>"]
 edition = "2021"
 description = "Provides a macro for quickly creating REST api client structs"
-repository = "https://github.com/JohnPeel/api-client/"
-documentation = "https://docs.rs/api-client/latest/api_client/"
+repository = "https://github.com/peanutbother/api-client/"
 license = "MIT"
 readme = "README.md"
 rust-version = "1.56"
@@ -21,8 +20,11 @@ reqwest = { version = "0.11", default-features = false }
 serde = { version = "1.0", default-features = false }
 
 [dev-dependencies]
-bytes = { version = "1.2" }
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
+bytes = { version = "1.4.0" }
+reqwest = { version = "0.11", default-features = false, features = [
+    "rustls-tls",
+    "json",
+] }
 serde = { version = "1.0", features = ["derive"] }
 tokio-test = "0.4"
-tokio = { version = "1.20", features = ["full"] }
+tokio = { version = "1.26.0", features = ["full"] }
