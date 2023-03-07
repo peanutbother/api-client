@@ -73,6 +73,48 @@ pub trait Api {
         Ok(request)
     }
 
+    /// You can use this method to modify the response before parsing it.
+    ///
+    /// Some good examples of usage are:
+    ///  - Authentication
+    ///  - Updating client fields
+    ///
+    /// # Authentication
+    /// ```rust
+    /// use api_client::{api, Api};
+    /// use reqwest::{Client, RequestBuilder};
+    ///
+    /// struct ExampleApi {
+    ///     client: Client,
+    ///     username: String,
+    ///     password: String
+    /// }
+    ///
+    /// impl Api for ExampleApi {
+    ///     fn client(&self) -> &Client {
+    ///         &self.client
+    ///     }
+    ///
+    ///     fn post_response(&mut self, response: Response) -> Response {
+    ///         for cookie in self.cookies() {
+    ///             // do something with cookie
+    ///         }
+    ///         response
+    ///     }
+    /// }
+    ///
+    /// impl ExampleApi {
+    ///     api! {
+    ///         fn example() -> String {
+    ///            GET "https://example.com"
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    fn post_response(&mut self, response: Response) -> Response {
+        response
+    }
+
     /// Used internally in the api! macro. Mostly for ergonmics.
     ///
     /// # Usage
@@ -99,7 +141,7 @@ pub trait Api {
     #[doc(hidden)]
     #[inline]
     async fn request<T: Serialize + ?Sized>(
-        &self,
+        &mut self,
         method: Method,
         url: &str,
         body: Body<'_, T>,
@@ -113,7 +155,7 @@ pub trait Api {
             #[cfg(feature = "multipart")]
             Body::Multipart(form) => request.multipart(form),
         };
-        request.send().await
+        request.send().await.map(|r| self.post_response(r))
     }
 }
 
@@ -186,7 +228,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Json<$req:ty>$(, $name:ident: $ty:ty)*) -> StatusCode { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, request: &$req, $($name $ty),*) -> ::reqwest::Result<::reqwest::StatusCode> {
+        $vis async fn $ident(&mut self, request: &$req, $($name $ty),*) -> ::reqwest::Result<::reqwest::StatusCode> {
             use $crate::Api as _;
             self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Json(request)).await.map(|res| res.status())
         }
@@ -196,7 +238,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Json<$req:ty>$(, $name:ident: $ty:ty)*) -> String { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<String> {
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<String> {
             use $crate::Api as _;
             self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Json(request)).await?.text().await
         }
@@ -206,7 +248,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Json<$req:ty>$(, $name:ident: $ty:ty)*) -> Bytes { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<::bytes::Bytes> {
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<::bytes::Bytes> {
             use $crate::Api as _;
             self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Json(request)).await?.bytes().await
         }
@@ -216,7 +258,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Json<$req:ty>$(, $name:ident: $ty:ty)*) -> Json<$res:ty> { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<$res> {
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<$res> {
             use $crate::Api as _;
             self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Json(request)).await?.json().await
         }
@@ -226,7 +268,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Form<$req:ty>$(, $name:ident: $ty:ty)*) -> StatusCode { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<::reqwest::StatusCode> {
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<::reqwest::StatusCode> {
             use $crate::Api as _;
             self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Form(request)).await.map(|res| res.status())
         }
@@ -236,7 +278,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Form<$req:ty>$(, $name:ident: $ty:ty)*) -> String { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<String> {
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<String> {
             use $crate::Api as _;
             self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Form(request)).await?.text().await
         }
@@ -246,7 +288,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Form<$req:ty>$(, $name:ident: $ty:ty)*) -> Bytes { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<::bytes::Bytes> {
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<::bytes::Bytes> {
             use $crate::Api as _;
             self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Form(request)).await?.bytes().await
         }
@@ -256,7 +298,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Form<$req:ty>$(, $name:ident: $ty:ty)*) -> Json<$res:ty> { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<$res> {
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest::Result<$res> {
             use $crate::Api as _;
             self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Form(request)).await?.json().await
         }
@@ -266,7 +308,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident($($name:ident: $ty:ty),*) -> StatusCode { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, $($name: $ty),*) -> ::reqwest::Result<::reqwest::StatusCode> {
+        $vis async fn $ident(&mut self, $($name: $ty),*) -> ::reqwest::Result<::reqwest::StatusCode> {
             use $crate::Api as _;
             self.request::<()>(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::None).await.map(|res| res.status())
         }
@@ -276,7 +318,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident($($name:ident: $ty:ty),*) -> String { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, $($name: $ty),*) -> ::reqwest::Result<String> {
+        $vis async fn $ident(&mut self, $($name: $ty),*) -> ::reqwest::Result<String> {
             use $crate::Api as _;
             self.request::<()>(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::None).await?.text().await
         }
@@ -286,7 +328,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident($($name:ident: $ty:ty),*) -> Bytes { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, $($name: $ty),*) -> ::reqwest::Result<::bytes::Bytes> {
+        $vis async fn $ident(&mut self, $($name: $ty),*) -> ::reqwest::Result<::bytes::Bytes> {
             use $crate::Api as _;
             self.request::<()>(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::None).await?.bytes().await
         }
@@ -296,7 +338,7 @@ macro_rules! api {
     ($(#[$attr:meta])* $vis:vis fn $ident:ident($($name:ident: $ty:ty),*) -> Json<$res:ty> { $method:tt $url:literal } $($rest:tt)*) => {
         $(#[$attr])*
         #[inline]
-        $vis async fn $ident(&self, $($name: $ty),*) -> ::reqwest::Result<$res> {
+        $vis async fn $ident(&mut self, $($name: $ty),*) -> ::reqwest::Result<$res> {
             use $crate::Api as _;
             self.request::<()>(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::None).await?.json().await
         }
@@ -386,7 +428,7 @@ mod tests {
     #[test]
     fn json_placeholder() {
         tokio_test::block_on(async {
-            let api = JsonPlaceholder::new();
+            let mut api = JsonPlaceholder::new();
 
             let all_todos = api.todos().await.unwrap();
             let todo_1 = api.todo(1).await.unwrap();
