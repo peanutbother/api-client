@@ -21,6 +21,8 @@ api-client = "0.1"
 ## Example
 
 ```rust
+use api_client::{ResultType};
+
 mod api {
     use api_client::{api, Api};
 
@@ -95,7 +97,7 @@ mod api {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+async fn main() -> ResultType<()> {
     let json_placeholder = api::JsonPlaceholder::new();
 
     let todo_1 = json_placeholder.todo(1).await?;

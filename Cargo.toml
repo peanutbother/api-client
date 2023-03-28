@@ -13,11 +13,13 @@ rust-version = "1.56"
 default = ["json", "multipart"]
 json = ["reqwest/json"]
 multipart = ["reqwest/multipart"]
+middleware = ["reqwest-middleware"]
 
 [dependencies]
 async-trait = "0.1"
 reqwest = { version = "0.11", default-features = false }
 serde = { version = "1.0", default-features = false }
+reqwest-middleware = { version = "0.2.1", optional = true }
 
 [dev-dependencies]
 bytes = { version = "1.4.0" }

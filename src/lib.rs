@@ -3,8 +3,39 @@
 #![warn(clippy::missing_docs_in_private_items)]
 #![warn(clippy::pedantic)]
 
-use reqwest::{Client, Method, RequestBuilder, Response, Result};
 use serde::Serialize;
+
+#[cfg(not(feature = "middleware"))]
+/// Type of the reqwest client, depending on the features
+pub type ClientType = reqwest::Client;
+
+#[cfg(feature = "middleware")]
+/// Type of the reqwest client, depending on the features
+pub type ClientType = reqwest_middleware::ClientWithMiddleware;
+
+#[cfg(not(feature = "middleware"))]
+/// Type of the reqwest client, depending on the features
+pub type ClientError = reqwest::Error;
+
+#[cfg(feature = "middleware")]
+/// Type of the reqwest client, depending on the features
+pub type ClientError = reqwest_middleware::Error;
+
+#[cfg(not(feature = "middleware"))]
+/// Type of the reqwest `Result`type, depending on the features
+pub type ResultType<T> = reqwest::Result<T>;
+
+#[cfg(feature = "middleware")]
+/// Type of the reqwest `Result`type, depending on the features
+pub type ResultType<T> = reqwest_middleware::Result<T>;
+
+#[cfg(not(feature = "middleware"))]
+/// Type of the reqwest request builder, depending on the features
+pub type RequestBuilder = reqwest::RequestBuilder;
+
+#[cfg(feature = "middleware")]
+/// Type of the reqwest request builder, depending on the features
+pub type RequestBuilder = reqwest_middleware::RequestBuilder;
 
 /// Used internally to the api! macro.
 #[doc(hidden)]
@@ -31,7 +62,7 @@ pub enum Body<'a, T: Serialize + ?Sized = ()> {
 #[async_trait::async_trait(?Send)]
 pub trait Api {
     /// Returns a reference to a reqwest Client to create requests.
-    fn client(&self) -> &Client;
+    fn client(&self) -> &ClientType;
 
     /// You can use this method to modify the request before sending it.
     ///
@@ -69,7 +100,7 @@ pub trait Api {
     /// }
     /// ```
     #[inline]
-    fn pre_request(&self, request: RequestBuilder) -> Result<RequestBuilder> {
+    fn pre_request(&self, request: RequestBuilder) -> ResultType<RequestBuilder> {
         Ok(request)
     }
 
@@ -111,7 +142,7 @@ pub trait Api {
     ///     }
     /// }
     /// ```
-    fn post_response(&mut self, response: Response) -> Response {
+    fn post_response(&mut self, response: reqwest::Response) -> reqwest::Response {
         response
     }
 
@@ -142,10 +173,10 @@ pub trait Api {
     #[inline]
     async fn request<T: Serialize + ?Sized>(
         &mut self,
-        method: Method,
+        method: reqwest::Method,
         url: &str,
         body: Body<'_, T>,
-    ) -> Result<Response> {
+    ) -> ResultType<reqwest::Response> {
         let request = self.pre_request(self.client().request(method, url))?;
         let request = match body {
             Body::None => request,
@@ -207,6 +238,7 @@ pub trait Api {
 /// }
 /// ```
 #[macro_export]
+#[cfg(not(feature = "middleware"))]
 macro_rules! api {
     () => {};
 
@@ -341,6 +373,194 @@ macro_rules! api {
         $vis async fn $ident(&mut self, $($name: $ty),*) -> ::reqwest::Result<$res> {
             use $crate::Api as _;
             self.request::<()>(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::None).await?.json().await
+        }
+        api!($($rest)*);
+    };
+}
+
+/// Magic macro for API structs.
+///
+/// # Simple Usage (auto generated struct)
+/// ```rust
+/// use api_client::{api, Api};
+/// use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
+///
+/// api!(pub struct ExampleApi);
+///
+/// impl ExampleApi {
+///     api! {
+///         fn example() -> String {
+///            GET "https://example.com"
+///         }
+///     }
+/// }
+/// ```
+///
+/// # Advanced Usage (manually created struct and [Api] implementation)
+/// ```rust
+/// use api_client::{api, Api};
+/// use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
+///
+/// struct ExampleApi {
+///     client: ClientWithMiddleware,
+///     username: String,
+///     password: String
+/// }
+///
+/// impl Api for ExampleApi {
+///     fn client(&self) -> &Client {
+///         &self.client
+///     }
+///
+///     fn pre_request(&self, request: RequestBuilder) -> reqwest_middleware::Result<RequestBuilder> {
+///         Ok(request.basic_auth(&self.username, Some(&self.password)))
+///     }
+/// }
+///
+/// impl ExampleApi {
+///     api! {
+///         fn example() -> String {
+///            GET "https://example.com"
+///         }
+///     }
+/// }
+/// ```
+#[macro_export]
+#[cfg(feature = "middleware")]
+macro_rules! api {
+    () => {};
+
+    ($(#[$attr:meta])* $vis:vis struct $ident:ident) => {
+        $(#[$attr])*
+        $vis struct $ident(::reqwest_middleware::ClientWithMiddleware);
+
+        impl $crate::Api for $ident {
+            fn client(&self) -> &::reqwest_middleware::ClientWithMiddleware {
+                &self.0
+            }
+
+            fn new() -> Self where Self: Sized {
+                $ident(::reqwest_middleware::ClientBuilder::new(::reqwest::Client::new()).build())
+            }
+        }
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Json<$req:ty>$(, $name:ident: $ty:ty)*) -> StatusCode { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, request: &$req, $($name $ty),*) -> ::reqwest_middleware::Result<::reqwest::StatusCode> {
+            use $crate::Api as _;
+            self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Json(request)).await.map(|res| res.status())
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Json<$req:ty>$(, $name:ident: $ty:ty)*) -> String { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest_middleware::Result<String> {
+            use $crate::Api as _;
+            self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Json(request)).await?.text().await
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Json<$req:ty>$(, $name:ident: $ty:ty)*) -> Bytes { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest_middleware::Result<::bytes::Bytes> {
+            use $crate::Api as _;
+            self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Json(request)).await?.bytes().await
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Json<$req:ty>$(, $name:ident: $ty:ty)*) -> Json<$res:ty> { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest_middleware::Result<$res> {
+            use $crate::Api as _;
+            self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Json(request)).await?.json().await.map_err(reqwest_middleware::Error::from)
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Form<$req:ty>$(, $name:ident: $ty:ty)*) -> StatusCode { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest_middleware::Result<::reqwest::StatusCode> {
+            use $crate::Api as _;
+            self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Form(request)).await.map(|res| res.status())
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Form<$req:ty>$(, $name:ident: $ty:ty)*) -> String { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest_middleware::Result<String> {
+            use $crate::Api as _;
+            self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Form(request)).await?.text().await
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Form<$req:ty>$(, $name:ident: $ty:ty)*) -> Bytes { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest_middleware::Result<::bytes::Bytes> {
+            use $crate::Api as _;
+            self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Form(request)).await?.bytes().await
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident(request: Form<$req:ty>$(, $name:ident: $ty:ty)*) -> Json<$res:ty> { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, request: &$req, $($name: $ty),*) -> ::reqwest_middleware::Result<$res> {
+            use $crate::Api as _;
+            self.request(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::Form(request)).await?.json().await.map_err(reqwest_middleware::Error::from)
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident($($name:ident: $ty:ty),*) -> StatusCode { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, $($name: $ty),*) -> ::reqwest_middleware::Result<::reqwest::StatusCode> {
+            use $crate::Api as _;
+            self.request::<()>(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::None).await.map(|res| res.status())
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident($($name:ident: $ty:ty),*) -> String { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, $($name: $ty),*) -> ::reqwest_middleware::Result<String> {
+            use $crate::Api as _;
+            self.request::<()>(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::None).await?.text().await.map_err(reqwest_middleware::Error::from)
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident($($name:ident: $ty:ty),*) -> Bytes { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, $($name: $ty),*) -> ::reqwest_middleware::Result<::bytes::Bytes> {
+            use $crate::Api as _;
+            self.request::<()>(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::None).await?.bytes().await.map_err(reqwest_middleware::Error::from)
+        }
+        api!($($rest)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis fn $ident:ident($($name:ident: $ty:ty),*) -> Json<$res:ty> { $method:tt $url:literal } $($rest:tt)*) => {
+        $(#[$attr])*
+        #[inline]
+        $vis async fn $ident(&mut self, $($name: $ty),*) -> ::reqwest_middleware::Result<$res> {
+            use $crate::Api as _;
+            self.request::<()>(::reqwest::Method::$method, format!($url).as_str(), $crate::Body::None).await?.json().await.map_err(reqwest_middleware::Error::from)
         }
         api!($($rest)*);
     };
